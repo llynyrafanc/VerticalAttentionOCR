@@ -41,6 +41,102 @@ import numpy as np
 from PIL import Image
 
 
+
+def format_Russian_line():
+    source_img_folder = 'C:/dataset_ru/images/lines'
+    source_folder = 'Russian'
+    target_folder = 'formatted/Russian_lines'
+    transcriptions = 'transcriptions.txt'
+
+    os.makedirs(target_folder, exist_ok=True)
+    set_names = ["train", "valid", "test"]
+    gt = {
+        "train": dict(),
+        "valid": dict(),
+        "test": dict()
+    }
+    charset = set()
+
+    start = '|'
+
+    for set_name in set_names:
+        id = 0
+        current_folder = os.path.join(target_folder, set_name)
+        targets_file = os.path.join(source_folder, set_name, transcriptions)
+        os.makedirs(current_folder, exist_ok=True)
+        with open(targets_file, "r", encoding="utf-8") as f:
+            for line in f:
+                orig_img_name = (line[:line.find(start)])
+                orig_img_path = os.path.join(source_img_folder, orig_img_name)
+                label = (line[line.find(start)+len(start):])
+                img_name = "{}_{}.png".format(set_name, id)
+                gt[set_name][img_name] = {
+                    "text": label,
+                }
+                charset = charset.union(set(label))
+                new_path = os.path.join(current_folder, img_name)
+                shutil.copy2(orig_img_path, new_path)
+                id += 1
+
+    with open(os.path.join(target_folder, "labels.pkl"), "wb") as f:
+         pickle.dump({
+             "ground_truth": gt,
+             "charset": sorted(list(charset)),
+         }, f)
+
+def format_Russian_paragraph():
+    source_img_folder = 'C:/dataset_ru/images/regions'
+    source_folder = 'Russian_paragraphs'
+    target_folder = 'formatted/Russian_paragraphs'
+    transcriptions = 'transcriptions.txt'
+
+    os.makedirs(target_folder, exist_ok=True)
+    set_names = ["train", "valid", "test"]
+    gt = {
+        "train": dict(),
+        "valid": dict(),
+        "test": dict()
+    }
+    charset = set()
+
+    start = '|'
+
+    for set_name in set_names:
+        id = 0
+        current_folder = os.path.join(target_folder, set_name)
+        targets_file = os.path.join(source_folder, set_name, transcriptions)
+        os.makedirs(current_folder, exist_ok=True)
+        with open(targets_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if(line.find(start) > 0):
+                    labels = ""
+                    orig_img_name = (line[:line.find(start)])
+                    orig_img_path = os.path.join(source_img_folder, orig_img_name)
+                    print(orig_img_path)
+                    labels = labels + (line[line.find(start)+len(start):])
+                    img_name = "{}_{}.png".format(set_name, id)
+                    print(img_name)
+
+                    new_path = os.path.join(current_folder, img_name)
+                    print(new_path)
+                    shutil.copy2(orig_img_path, new_path)
+                    id += 1
+                else:
+                    labels = labels + " " + line
+
+                gt[set_name][img_name] = {
+                    "text": labels,
+                }
+                charset = charset.union(set(labels))
+
+    with open(os.path.join(target_folder, "labels.pkl"), "wb") as f:
+         pickle.dump({
+             "ground_truth": gt,
+             "charset": sorted(list(charset)),
+         }, f)
+
+
+
 def format_IAM_line():
     """
     Format the IAM dataset at line level with the commonly used split (6,482 for train, 976 for validation and 2,915 for test)
@@ -587,8 +683,11 @@ def format_scribblelens_line():
 
 
 if __name__ == "__main__":
+    
+    format_Russian_line()
+    #format_Russian_paragraph()
 
-    format_IAM_line()
+    # format_IAM_line()
     # format_IAM_paragraph()
 
     # format_RIMES_line()

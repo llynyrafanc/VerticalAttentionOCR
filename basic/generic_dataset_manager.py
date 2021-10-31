@@ -318,13 +318,19 @@ class GenericDataset(Dataset):
                 img = DPIAdjusting(factor)(img)
             if "perspective" in aug.keys() and np.random.rand() < aug["perspective"]["proba"]:
                 scale = np.random.uniform(aug["perspective"]["min_factor"], aug["perspective"]["max_factor"])
-                img = RandomPerspective(distortion_scale=scale, p=1, interpolation=Image.BILINEAR, fill=255)(img)
+                try:    
+                    img = RandomPerspective(distortion_scale=scale, p=1, interpolation=Image.BILINEAR, fill=255)(img)
+                except:
+                    img = img                             
             elif "elastic_distortion" in aug.keys() and np.random.rand() < aug["elastic_distortion"]["proba"]:
                 magnitude = np.random.randint(1, aug["elastic_distortion"]["max_magnitude"] + 1)
                 kernel = np.random.randint(1, aug["elastic_distortion"]["max_kernel"] + 1)
                 magnitude_w, magnitude_h = (magnitude, 1) if np.random.randint(2) == 0 else (1, magnitude)
-                img = ElasticDistortion(grid=(kernel, kernel), magnitude=(magnitude_w, magnitude_h), min_sep=(1, 1))(
+                try:    
+                    img = ElasticDistortion(grid=(kernel, kernel), magnitude=(magnitude_w, magnitude_h), min_sep=(1, 1))(
                     img)
+                except:
+                    img=img                                
             elif "random_transform" in aug.keys() and np.random.rand() < aug["random_transform"]["proba"]:
                 img = RandomTransform(aug["random_transform"]["max_val"])(img)
             if "dilation_erosion" in aug.keys() and np.random.rand() < aug["dilation_erosion"]["proba"]:
@@ -333,9 +339,15 @@ class GenericDataset(Dataset):
                 kernel_w = np.random.randint(aug["dilation_erosion"]["min_kernel"],
                                              aug["dilation_erosion"]["max_kernel"] + 1)
                 if np.random.randint(2) == 0:
-                    img = Erosion((kernel_w, kernel_h), aug["dilation_erosion"]["iterations"])(img)
+                    try:    
+                        img = Erosion((kernel_w, kernel_h), aug["dilation_erosion"]["iterations"])(img)
+                    except:
+                        img=img                                
                 else:
-                    img = Dilation((kernel_w, kernel_h), aug["dilation_erosion"]["iterations"])(img)
+                    try:    
+                        img = Dilation((kernel_w, kernel_h), aug["dilation_erosion"]["iterations"])(img)
+                    except:
+                        img=img                                      
             if "contrast" in aug.keys() and np.random.rand() < aug["contrast"]["proba"]:
                 factor = np.random.uniform(aug["contrast"]["min_factor"], aug["contrast"]["max_factor"])
                 img = adjust_contrast(img, factor)

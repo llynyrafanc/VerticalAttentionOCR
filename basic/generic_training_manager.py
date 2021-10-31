@@ -54,8 +54,11 @@ from tqdm import tqdm
 from time import time
 from torch.nn.parallel import DistributedDataParallel as tDDP
 from basic.generic_dataset_manager import DatasetManager
-
-
+from transformers import BertForMaskedLM, BertTokenizer, RobertaForMaskedLM, RobertaTokenizer
+from pyaspeller import YandexSpeller
+from spellchecker import SpellChecker
+from transformers import T5Tokenizer, T5ForConditionalGeneration
+                                                                                                     
 class GenericTrainingManager:
 
     def __init__(self, params):
@@ -78,7 +81,23 @@ class GenericTrainingManager:
         self.lr_scheduler = None
         self.best = None
         self.writer = None
+        
+        self.model_ruBert_base = BertForMaskedLM.from_pretrained('sberbank-ai/ruBert-base')
+        self.tokenizer_ruBert_base = BertTokenizer.from_pretrained('sberbank-ai/ruBert-base', do_lower_case=False)
+        self.model_ruBert_large = BertForMaskedLM.from_pretrained('sberbank-ai/ruBert-large')
+        self.tokenizer_ruBert_large = BertTokenizer.from_pretrained('sberbank-ai/ruBert-large', do_lower_case=False)
+        self.model_ruRoberta = RobertaForMaskedLM.from_pretrained('sberbank-ai/ruRoberta-large')
+        self.tokenizer_ruRoberta = RobertaTokenizer.from_pretrained('sberbank-ai/ruRoberta-large', do_lower_case=False)
 
+        self.model_ruT5_base = T5ForConditionalGeneration.from_pretrained("sberbank-ai/ruT5-base")
+        self.tokenizer_ruT5_base = T5Tokenizer.from_pretrained("sberbank-ai/ruT5-base")
+        self.model_ruT5_large = T5ForConditionalGeneration.from_pretrained("sberbank-ai/ruT5-large")
+        self.tokenizer_ruT5_large = T5Tokenizer.from_pretrained("sberbank-ai/ruT5-large")
+
+        self.yaspeller = YandexSpeller()
+        self.pyspell = SpellChecker(language='ru')   
+        self.pyspell.word_frequency.load_text_file("C:/dictionary.txt", encoding="utf-8", tokenizer=None)        
+        #print("dictionary loaded")                                                                                                          
         self.init_hardware_config()
         self.init_apex_config()
         self.init_paths()
@@ -374,11 +393,29 @@ class GenericTrainingManager:
             if metric_name == "cer":
                 metrics["nb_chars"] = 0
                 metrics[metric_name] = list()
+                metrics["cer_spell"] = list()
+                metrics["cer_ruT5_base"] = list()
+                metrics["cer_ruT5_large"] = list()
+                metrics["cer_ruBert_base"] = list()
+                metrics["cer_ruBert_large"] = list()
+                metrics["cer_ruRoberta"] = list()                                                                               
                 continue
             elif metric_name == "wer":
                 metrics["nb_words"] = 0
+                metrics["wer_spell"] = 0
+                metrics["wer_ruT5_base"] = 0
+                metrics["wer_ruT5_large"] = 0
+                metrics["wer_ruBert_base"] = 0
+                metrics["wer_ruBert_large"] = 0
+                metrics["wer_ruRoberta"] = 0                                                                       
             elif metric_name == "pred":
                 metrics[metric_name] = list()
+                metrics["pred_spell"] = list()
+                metrics["pred_ruT5_base"] = list()
+                metrics["pred_ruT5_large"] = list()
+                metrics["pred_ruBert_base"] = list()
+                metrics["pred_ruBert_large"] = list()
+                metrics["pred_ruRoberta"] = list()                                                                                 
                 continue
             elif metric_name == "probas":
                 metrics[metric_name] = list()
@@ -395,12 +432,41 @@ class GenericTrainingManager:
         Add batch metrics to the metrics
         """
         for key in batch_metrics.keys():
+            if metrics["cer_spell"] == 0:
+                metrics["cer_spell"] = []
+            if metrics["pred_spell"] == 0:
+                metrics["pred_spell"] = []
+
+            if metrics["cer_ruT5_base"] == 0:
+                metrics["cer_ruT5_base"] = []
+            if metrics["pred_ruT5_base"] == 0:
+                metrics["pred_ruT5_base"] = []
+
+            if metrics["cer_ruT5_large"] == 0:
+                metrics["cer_ruT5_large"] = []
+            if metrics["pred_ruT5_large"] == 0:
+                metrics["pred_ruT5_large"] = []
+
+            if metrics["cer_ruBert_base"] == 0:
+                metrics["cer_ruBert_base"] = []
+            if metrics["pred_ruBert_base"] == 0:
+                metrics["pred_ruBert_base"] = []
+
+            if metrics["cer_ruBert_large"] == 0:
+                metrics["cer_ruBert_large"] = []
+            if metrics["pred_ruBert_large"] == 0:
+                metrics["pred_ruBert_large"] = []
+
+            if metrics["cer_ruRoberta"] == 0:
+                metrics["cer_ruRoberta"] = []
+            if metrics["pred_ruRoberta"] == 0:
+                metrics["pred_ruRoberta"] = []
             if key in ["diff_len", ]:
                 if metrics[key] is None:
                     metrics[key] = batch_metrics[key]
                 else:
                     metrics[key] = np.concatenate([metrics[key], batch_metrics[key]], axis=0)
-            elif key in ["pred", ]:
+            elif key in ["pred", "pred_spell", "pred_ruT5_base", "pred_ruT5_large", "pred_ruBert_base", "pred_ruBert_large", "pred_ruRoberta", ]:
                 if len(metrics[key]) == 0:
                     metrics[key] = batch_metrics[key]
                 else:
@@ -419,13 +485,13 @@ class GenericTrainingManager:
             if metric_name in ["cer", "cer_force_len", ]:
                 edit = metrics[metric_name] if metric_name == "cer_force_len" else np.sum(metrics[metric_name])
                 display_values[metric_name] = round(edit / metrics["nb_chars"], 4)
-            elif metric_name == "wer":
+            elif metric_name in ["wer", ]:
                 display_values[metric_name] = round(metrics[metric_name] / metrics["nb_words"], 4)
             elif metric_name in ["f_measure", "precision", "recall", "IoU", "mAP", "pp_f_measure", "pp_precision", "pp_recall", "pp_IoU", "pp_mAP"]:
                 display_values[metric_name] = round(metrics[metric_name] / metrics["weights"], 4)
             elif metric_name in ["diff_len", ]:
                 display_values[metric_name] = np.round(np.mean(np.abs(metrics[metric_name])), 3)
-            elif metric_name in ["time", "pred", "probas", "nb_max_len", "worst_cer", ]:
+            elif metric_name in ["time", "pred", "probas", "nb_max_len", "worst_cer", "pred_spell", "cer_spell", "wer_spell", "pred_ruT5_base", "pred_ruT5_large", "cer_ruT5_base", "cer_ruT5_large", "wer_ruT5_base", "wer_ruT5_large", "pred_ruBert_base", "pred_ruBert_large", "pred_ruRoberta", "cer_ruBert_base", "cer_ruBert_large", "cer_ruRoberta", "wer_ruBert_base", "wer_ruBert_large", "wer_ruRoberta", ]:
                 continue
             elif metric_name in ["loss", "loss_ctc", "loss_ce", "loss_ce_end"]:
                 display_values[metric_name] = round(metrics[metric_name] / self.latest_batch, 4)
@@ -660,8 +726,36 @@ class GenericTrainingManager:
     def update_curriculum(self):
         raise NotImplementedError
 
-    def output_pred(self, pred, set_name):
-        raise NotImplementedError
+    def output_pred(self, pred, pred_spell, pred_ruT5_base, pred_ruT5_large, set_name):
+        path = os.path.join(self.paths["results"], "labels_{}_{}.txt".format(set_name, self.latest_epoch))
+        labels = pred[0]
+        targets = pred[1]
+        files = pred[2]
+        spells = pred_spell[0]
+        with open(path, "w", encoding="utf-8") as f:
+            for file, target, label, spell, ruT5_base, ruT5_large in zip(files, targets, labels, spells, pred_ruT5_base[0], pred_ruT5_large[0]):
+               f.write("{}:\n target: {}\n spellcheck: {}\n label: {}\n ruT5_base: {}\n ruT5_large: {}\n\n".format(file, target, spell, label, ruT5_base, ruT5_large))
+
+    #def output_pred(self, pred, pred_spell, pred_ruBert_base, pred_ruBert_large, pred_ruRoberta, set_name):
+    #    path = os.path.join(self.paths["results"], "labels_{}_{}.txt".format(set_name, self.latest_epoch))
+    #    labels = pred[0]
+    #    targets = pred[1]
+    #    files = pred[2]
+    #    spells = pred_spell[0]
+    #    with open(path, "w", encoding="utf-8") as f:
+    #        for file, target, label, spell, ruBert_base, ruBert_large, ruRoberta in zip(files, targets, labels, spells, pred_ruBert_base[0], pred_ruBert_large[0], pred_ruRoberta[0]):
+    #           f.write("{}:\n target: {}\n spellcheck: {}\n label: {}\n ruBert_base: {}\n ruBert_large: {}\n ruRoberta: {}\n\n".format(file, target, spell, label, ruBert_base, ruBert_large, ruRoberta))
+
+    #def output_pred(self, pred, pred_spell, set_name):
+    #    path = os.path.join(self.paths["results"], "labels_{}_{}.txt".format(set_name, self.latest_epoch))
+    #    labels = pred[0]
+    #    targets = pred[1]
+    #    files = pred[2]
+    #    spells = pred_spell[0]
+    #    with open(path, "w", encoding="utf-8") as f:
+    #        for file, target, label, spell in zip(files, targets, labels, spells):
+    #            f.write("{}:\n target: {}\n spellcheck: {}\n label: {}\n \n".format(file, target, spell, label))
+
 
     def add_checkpoint_info(self, load_mode="last", **kwargs):
         for filename in os.listdir(self.paths["checkpoints"]):
@@ -680,23 +774,31 @@ class GenericTrainingManager:
         """
         path = os.path.join(self.paths["results"], "predict_{}_{}.txt".format(set_name, self.latest_epoch))
         if "pred" in metrics.keys():
-            temp_time = time()
-            self.output_pred(metrics["pred"], set_name)
+            temp_time = time()                                                                                                                                                                     
+            #self.output_pred(metrics["pred"], set_name)
+            #self.output_pred(metrics["pred"], metrics["pred_spell"], metrics["pred_ruBert_base"], metrics["pred_ruBert_large"], metrics["pred_ruRoberta"], set_name)            
+            self.output_pred(metrics["pred"], metrics["pred_spell"], metrics["pred_ruT5_base"], metrics["pred_ruT5_large"], set_name)                                                                                                                         
             output_time = time() - temp_time
             if "total_time" in metrics.keys():
                 metrics["total_output_time"] = np.round(output_time, 3)
                 metrics["sample_output_time"] = np.round(output_time / metrics["nb_samples"], 4)
 
-            del metrics["pred"]
+            del metrics["pred"]            
+            del metrics["pred_spell"]
+            del metrics["pred_ruT5_base"]
+            del metrics["pred_ruT5_large"]
+            del metrics["pred_ruBert_base"]
+            del metrics["pred_ruBert_large"]
+            del metrics["pred_ruRoberta"]
 
         with open(path, "w") as f:
             for metric_name in metrics.keys():
-                if metric_name in ["cer", "cer_force_len"]:
+                if metric_name in ["cer", "cer_force_len", "cer_spell", "cer_ruT5_base", "cer_ruT5_large", "cer_ruBert_base", "cer_ruBert_large", "cer_ruRoberta", ]:
                     edit = metrics[metric_name] if metric_name == "cer_force_len" else np.sum(metrics[metric_name])
                     value = round(edit / metrics["nb_chars"], 4)
-                elif metric_name in ["wer", ]:
+                elif metric_name in ["wer", "wer_spell", "wer_ruT5_base", "wer_ruT5_large", "wer_ruBert_base", "wer_ruBert_large", "wer_ruRoberta", ]:
                     value = round(metrics[metric_name] / metrics["nb_words"], 4)
-                elif metric_name in ["loss_ce", ]:
+                elif metric_name in ["loss_ce", "loss_ctc", ]:
                     value = round(metrics[metric_name] / metrics["nb_samples"], 4)
                 elif metric_name in ["f_measure", "precision", "recall", "IoU", "mAP",
                                    "pp_f_measure", "pp_precision", "pp_recall", "pp_IoU", "pp_mAP", ]:
